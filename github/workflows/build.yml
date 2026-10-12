@@ -1,0 +1,42 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Projekt-ZIP entpacken (falls hochgeladen)
+        run: |
+          ZIP=$(ls ./*.zip 2>/dev/null | head -n1 || true)
+          if [ -n "$ZIP" ]; then unzip -oq "$ZIP" -d _project; fi
+
+      - name: Projektordner finden
+        run: |
+          F=$(find . -name settings.gradle.kts -not -path './.git/*' | head -n1)
+          echo "Gefunden: $F"
+          echo "PROJECT_DIR=$(dirname "$F")" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
+
+      - name: APK bauen
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TacticsApp-debug-apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
