@@ -9,21 +9,28 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Projekt-ZIP entpacken
+      - name: Neueste Projekt-ZIP entpacken
         run: |
           echo "ZIP-Dateien im Repo:"
           find . -iname '*.zip' -not -path './.git/*'
-          ZIP=""
+          BEST=""
+          BEST_T=0
           while IFS= read -r z; do
-            if unzip -l "$z" | grep -q "de/tactics/app/MainViewModel.kt"; then ZIP="$z"; fi
+            if unzip -l "$z" | grep -q "de/tactics/app/MainViewModel.kt"; then
+              T=$(git log -1 --format=%ct -- "${z#./}")
+              echo "Kandidat: $z (Commit-Zeit $T)"
+              if [ "${T:-0}" -gt "$BEST_T" ]; then BEST="$z"; BEST_T="$T"; fi
+            fi
           done < <(find . -iname '*.zip' -not -path './.git/*')
-          if [ -z "$ZIP" ]; then
-            echo "Keine passende ZIP mit dem neuen Projekt gefunden"
+          if [ -z "$BEST" ]; then
+            echo "Keine passende ZIP mit dem Projekt gefunden"
             exit 1
           fi
-          echo "Verwende: $ZIP"
-          unzip -oq "$ZIP" -d _project
+          echo "Verwende: $BEST"
+          unzip -oq "$BEST" -d _project
           echo "PROJECT_DIR=_project" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
@@ -44,5 +51,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: TacticsApp-debug-apk
+          name: Footlytix-debug-apk
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+
