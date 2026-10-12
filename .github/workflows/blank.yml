@@ -9,11 +9,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-
-      - name: Projekt-ZIP entpacken (falls hochgeladen)
+      - name: Projekt-ZIP entpacken
         run: |
-          ZIP=$(ls ./*.zip 2>/dev/null | head -n1 || true)
-          if [ -n "$ZIP" ]; then unzip -oq "$ZIP" -d _project; fi
+          unzip -oq TacticsApp.zip -d _project
+          echo "PROJECT_DIR=_project" >> "$GITHUB_ENV"
 
       - name: Projektordner finden
         run: |
