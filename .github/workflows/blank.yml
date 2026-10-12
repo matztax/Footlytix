@@ -1,45 +1,15 @@
-name: Build APK
-
-on:
-  push:
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Projekt-ZIP entpacken
+- name: Projekt-ZIP entpacken
         run: |
           echo "ZIP-Dateien im Repo:"
           find . -iname '*.zip' -not -path './.git/*'
-          ZIP=$(find . -iname '*tactics*.zip' -not -path './.git/*' | head -n1)
+          ZIP=""
+          while IFS= read -r z; do
+            if unzip -l "$z" | grep -q "de/tactics/app/MainViewModel.kt"; then ZIP="$z"; fi
+          done < <(find . -iname '*.zip' -not -path './.git/*')
           if [ -z "$ZIP" ]; then
-            echo "Keine TacticsApp-ZIP gefunden"
+            echo "Keine passende ZIP mit dem neuen Projekt gefunden"
             exit 1
           fi
           echo "Verwende: $ZIP"
           unzip -oq "$ZIP" -d _project
           echo "PROJECT_DIR=_project" >> "$GITHUB_ENV"
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Android-Lizenzen akzeptieren
-        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-
-      - uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.7'
-
-      - name: APK bauen
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: gradle assembleDebug --no-daemon
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: TacticsApp-debug-apk
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
