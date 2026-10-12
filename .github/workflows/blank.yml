@@ -9,16 +9,19 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
       - name: Projekt-ZIP entpacken
         run: |
-          unzip -oq TacticsApp.zip -d _project
+          echo "ZIP-Dateien im Repo:"
+          find . -iname '*.zip' -not -path './.git/*'
+          ZIP=$(find . -iname '*tactics*.zip' -not -path './.git/*' | head -n1)
+          if [ -z "$ZIP" ]; then
+            echo "Keine TacticsApp-ZIP gefunden"
+            exit 1
+          fi
+          echo "Verwende: $ZIP"
+          unzip -oq "$ZIP" -d _project
           echo "PROJECT_DIR=_project" >> "$GITHUB_ENV"
-
-      - name: Projektordner finden
-        run: |
-          F=$(find . -name settings.gradle.kts -not -path './.git/*' | head -n1)
-          echo "Gefunden: $F"
-          echo "PROJECT_DIR=$(dirname "$F")" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
         with:
@@ -34,7 +37,7 @@ jobs:
 
       - name: APK bauen
         working-directory: ${{ env.PROJECT_DIR }}
-        run: gradle assembleDebug --no-daemon 
+        run: gradle assembleDebug --no-daemon
 
       - uses: actions/upload-artifact@v4
         with:
