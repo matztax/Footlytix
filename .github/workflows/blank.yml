@@ -1,8 +1,11 @@
-name: Build APK
+name: Build APK und AAB
 
 on:
   push:
   workflow_dispatch:
+
+env:
+  HAS_KEY: ${{ secrets.KEYSTORE_BASE64 != '' }}
 
 jobs:
   build:
@@ -32,6 +35,8 @@ jobs:
           echo "Verwende: $BEST"
           unzip -oq "$BEST" -d _project
           echo "PROJECT_DIR=_project" >> "$GITHUB_ENV"
+          GV=$(cat _project/.gradle-version 2>/dev/null || echo 8.11.1)
+          echo "GRADLE_VERSION=$GV" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
         with:
@@ -43,14 +48,33 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '8.7'
+          gradle-version: ${{ env.GRADLE_VERSION }}
 
-      - name: APK bauen
+      - name: Debug-APK bauen
         working-directory: ${{ env.PROJECT_DIR }}
         run: gradle assembleDebug --no-daemon
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Footlytix-debug-apk
+          name: Futlytix-debug-apk
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Release-AAB bauen (nur mit Schluessel)
+        if: env.HAS_KEY == 'true'
+        working-directory: ${{ env.PROJECT_DIR }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          export RELEASE_KEYSTORE_PATH="$RUNNER_TEMP/upload.jks"
+          gradle bundleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        if: env.HAS_KEY == 'true'
+        with:
+          name: Futlytix-release-aab
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/bundle/release/app-release.aab
 
