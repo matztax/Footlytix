@@ -1,4 +1,4 @@
-name: Build APK und AAB
+name: Build, Tests und Release
 
 on:
   push:
@@ -15,27 +15,30 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Neueste Projekt-ZIP entpacken
+      # Normalfall: das Projekt liegt direkt im Repo (settings.gradle.kts im Hauptordner).
+      # Übergangsweise wird sonst wie früher die neueste Projekt-ZIP entpackt.
+      - name: Projekt finden
         run: |
-          echo "ZIP-Dateien im Repo:"
-          find . -iname '*.zip' -not -path './.git/*'
-          BEST=""
-          BEST_T=0
-          while IFS= read -r z; do
-            if unzip -l "$z" | grep -q "de/tactics/app/MainViewModel.kt"; then
-              T=$(git log -1 --format=%ct -- "${z#./}")
-              echo "Kandidat: $z (Commit-Zeit $T)"
-              if [ "${T:-0}" -gt "$BEST_T" ]; then BEST="$z"; BEST_T="$T"; fi
-            fi
-          done < <(find . -iname '*.zip' -not -path './.git/*')
-          if [ -z "$BEST" ]; then
-            echo "Keine passende ZIP mit dem Projekt gefunden"
-            exit 1
+          if [ -f settings.gradle.kts ]; then
+            echo "Projekt liegt im Repo-Hauptordner"
+            echo "PROJECT_DIR=." >> "$GITHUB_ENV"
+            DIR=.
+          else
+            BEST=""; BEST_T=0
+            while IFS= read -r z; do
+              if unzip -l "$z" | grep -q "de/tactics/app/MainViewModel.kt"; then
+                T=$(git log -1 --format=%ct -- "${z#./}")
+                echo "Kandidat: $z (Commit-Zeit $T)"
+                if [ "${T:-0}" -gt "$BEST_T" ]; then BEST="$z"; BEST_T="$T"; fi
+              fi
+            done < <(find . -iname '*.zip' -not -path './.git/*')
+            if [ -z "$BEST" ]; then echo "Kein Projekt gefunden"; exit 1; fi
+            echo "Verwende ZIP: $BEST"
+            unzip -oq "$BEST" -d _project
+            echo "PROJECT_DIR=_project" >> "$GITHUB_ENV"
+            DIR=_project
           fi
-          echo "Verwende: $BEST"
-          unzip -oq "$BEST" -d _project
-          echo "PROJECT_DIR=_project" >> "$GITHUB_ENV"
-          GV=$(cat _project/.gradle-version 2>/dev/null || echo 8.11.1)
+          GV=$(cat "$DIR/.gradle-version" 2>/dev/null || echo 8.11.1)
           echo "GRADLE_VERSION=$GV" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
@@ -59,6 +62,51 @@ jobs:
           name: Futlytix-debug-apk
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
 
+      - name: Unit-Tests
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle testDebugUnitTest --no-daemon
+
+      - name: Testbericht hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Testbericht
+          path: ${{ env.PROJECT_DIR }}/app/build/reports/tests/
+          if-no-files-found: ignore
+
+      - name: Lint (nur Bericht, bricht nicht ab)
+        if: always()
+        continue-on-error: true
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle lintDebug --no-daemon
+
+      - name: Lint-Bericht hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lint-Bericht
+          path: ${{ env.PROJECT_DIR }}/app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+
+      - name: Datenbankschema hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Datenbankschema
+          path: ${{ env.PROJECT_DIR }}/app/schemas/
+          if-no-files-found: ignore
+
+      # Optimierter Build (R8) mit Debug-Schlüssel zum Testen auf dem Handy.
+      # Installiert sich als eigene App "de.futlytix.app.r8test" neben der normalen App.
+      - name: R8-Test-APK bauen
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle assembleR8test --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Futlytix-r8test-apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/r8test/app-r8test.apk
+
       - name: Release-AAB bauen (nur mit Schluessel)
         if: env.HAS_KEY == 'true'
         working-directory: ${{ env.PROJECT_DIR }}
@@ -78,3 +126,10 @@ jobs:
           name: Futlytix-release-aab
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/bundle/release/app-release.aab
 
+      # Für Absturzberichte in der Play Console (Zuordnung der R8-Namen)
+      - uses: actions/upload-artifact@v4
+        if: env.HAS_KEY == 'true'
+        with:
+          name: Futlytix-release-mapping
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: ignore
